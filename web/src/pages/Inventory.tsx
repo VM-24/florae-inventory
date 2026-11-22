@@ -130,7 +130,7 @@ export default function Inventory() {
 
   const columns: RColumn<ListedItem>[] = [
     {
-      title: '', key: 'photo', width: 56, card: 'hidden',
+      title: '', key: 'photo', width: 56, card: 'media',
       render: (_, i) => (i.photoUrl
         ? <img className="thumb" src={i.photoUrl} alt="" loading="lazy" />
         : <div className="thumb-empty"><PictureOutlined /></div>),

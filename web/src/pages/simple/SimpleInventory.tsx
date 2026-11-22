@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Alert, App, Button, Input, InputNumber, Segmented, Select, Space, Spin, Switch, Tooltip, Typography } from 'antd';
+import { Alert, App, Button, Grid, Input, InputNumber, Segmented, Select, Space, Spin, Switch, Tooltip, Typography } from 'antd';
 import { DownloadOutlined, PictureOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import ResponsiveTable, { type RColumn } from '../../components/ResponsiveTable';
 import MonthPicker from '../../components/MonthPicker';
@@ -33,6 +33,8 @@ export default function SimpleInventory() {
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
   const [search, setSearch] = useState(params.get('q') ?? '');
+  // Same breakpoint as ResponsiveTable: cards below md (768px).
+  const isMobile = Grid.useBreakpoint().md === false;
 
   const categoryId = params.get('category') ?? undefined;
   const status = (params.get('status') as ItemStatus) || 'active';
@@ -99,7 +101,7 @@ export default function SimpleInventory() {
       render: (_, i) => <span className="num">{i.sku ?? '—'}</span>,
     },
     {
-      title: 'Фото', key: 'photo', width: 64, card: 'hidden',
+      title: 'Фото', key: 'photo', width: 64, card: 'media',
       render: (_, i) => (i.photoUrl
         ? <img className="thumb" src={i.photoUrl} alt="" loading="lazy" />
         : <div className="thumb-empty"><PictureOutlined /></div>),
@@ -172,31 +174,54 @@ export default function SimpleInventory() {
 
   if (!month) return <div style={{ textAlign: 'center', padding: 48 }}><Spin size="large" /></div>;
 
+  const editSwitch = (
+    <Space>
+      <Switch checked={editMode} onChange={setEditMode} />
+      <span>Редактировать количество</span>
+    </Space>
+  );
+  const csvButton = <Button icon={<DownloadOutlined />} onClick={exportCsv} disabled={!items.length}>CSV</Button>;
+  const addButton = isAdmin && (
+    <Button
+      type="primary"
+      icon={<PlusOutlined />}
+      onClick={() => navigate(`/items/new?month=${month}${categoryId ? `&category=${categoryId}` : ''}`)}
+    >
+      Позиция
+    </Button>
+  );
+
+
   return (
     <div>
-      <Space style={{ marginBottom: 16, justifyContent: 'space-between', width: '100%' }} wrap>
-        <Space wrap align="center" size="middle">
-          <Typography.Title level={3} style={{ margin: 0 }}>Инвентарь</Typography.Title>
-          <MonthPicker value={month} onChange={m => setParam('month', m)} monthsWithData={monthsWithData} />
-          {!loading && <span className="muted">пересчитано {counted} из {items.length}</span>}
-        </Space>
-        <Space wrap>
-          <Space>
-            <Switch checked={editMode} onChange={setEditMode} />
-            <span>Редактировать количество</span>
+      {isMobile ? (
+        // Phone: title and "+ Позиция" share the first row; the month and tools go below.
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+            <Typography.Title level={3} style={{ margin: 0 }}>Инвентарь</Typography.Title>
+            {addButton}
+          </div>
+          <Space wrap align="center" size="middle">
+            <MonthPicker value={month} onChange={m => setParam('month', m)} monthsWithData={monthsWithData} />
+            {!loading && <span className="muted">пересчитано {counted} из {items.length}</span>}
+            {editSwitch}
+            {csvButton}
           </Space>
-          <Button icon={<DownloadOutlined />} onClick={exportCsv} disabled={!items.length}>CSV</Button>
-          {isAdmin && (
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => navigate(`/items/new?month=${month}${categoryId ? `&category=${categoryId}` : ''}`)}
-            >
-              Позиция
-            </Button>
-          )}
+        </div>
+      ) : (
+        <Space style={{ marginBottom: 16, justifyContent: 'space-between', width: '100%' }} wrap>
+          <Space wrap align="center" size="middle">
+            <Typography.Title level={3} style={{ margin: 0 }}>Инвентарь</Typography.Title>
+            <MonthPicker value={month} onChange={m => setParam('month', m)} monthsWithData={monthsWithData} />
+            {!loading && <span className="muted">пересчитано {counted} из {items.length}</span>}
+          </Space>
+          <Space wrap>
+            {editSwitch}
+            {csvButton}
+            {addButton}
+          </Space>
         </Space>
-      </Space>
+      )}
 
       {!loading && !monthsWithData.has(month) && (
         <Alert

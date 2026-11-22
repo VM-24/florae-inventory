@@ -7,11 +7,13 @@ import 'dayjs/locale/ru';
 import dayjs from 'dayjs';
 import App from './App';
 import PwaReloadPrompt from './components/PwaReloadPrompt';
+import { disableZoomInStandalone } from './pwaZoom';
 import { AuthProvider } from './auth';
 import 'antd/dist/reset.css';
 import './styles.css';
 
 dayjs.locale('ru');
+disableZoomInStandalone();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

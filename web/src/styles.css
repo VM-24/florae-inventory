@@ -34,3 +34,13 @@ body { margin: 0; background: #f7f8fa; }
 .photo-cover-tag { position: absolute; left: 6px; top: 6px; margin: 0; pointer-events: none; }
 .photo-actions { position: absolute; right: 6px; bottom: 6px; }
 .row-selected td { background: #f3eefe !important; }
+
+/* Installed app (PWA): no pinch / double-tap zoom — see pwaZoom.ts */
+html.pwa-standalone, html.pwa-standalone body { touch-action: pan-x pan-y; }
+/* iOS zooms on focus when font-size < 16px: keep inputs at 16px in the installed app on any screen */
+html.pwa-standalone input, html.pwa-standalone textarea, html.pwa-standalone select,
+html.pwa-standalone .ant-input, html.pwa-standalone .ant-input-number-input, html.pwa-standalone .ant-select-selection-search-input { font-size: 16px; }
+
+/* Mobile cards (ResponsiveTable card: media): bigger item photo next to the name */
+.rt-card-media { flex-shrink: 0; }
+.rt-card-media .thumb, .rt-card-media .thumb-empty { width: 64px; height: 64px; border-radius: 8px; font-size: 20px; }

@@ -8,8 +8,9 @@ const { useBreakpoint } = Grid;
 //   header — заголовок карточки (крупно, без подписи; напр. имя/название);
 //   inline — подпись слева, значение справа в одну строку (по умолчанию);
 //   block  — подпись сверху, значение снизу во всю ширину (длинный текст, кнопки);
+//   media  — картинка слева от заголовка (фото позиции), крупнее, чем в таблице;
 //   hidden — не показывать на мобильном.
-export type CardMode = 'header' | 'inline' | 'block' | 'hidden';
+export type CardMode = 'header' | 'inline' | 'block' | 'media' | 'hidden';
 
 // Колонка antd + необязательные подсказки для карточек. Лишние поля antd Table
 // игнорирует, поэтому на десктопе тот же массив идёт в Table как есть.
@@ -86,6 +87,7 @@ export default function ResponsiveTable<T>(props: ResponsiveTableProps<T>) {
         const clickable = Boolean(rowProps.onClick);
 
         const headers: ReactNode[] = [];
+        const media: ReactNode[] = [];
         const fields: Array<{ label: ReactNode; value: ReactNode; block: boolean }> = [];
 
         for (const col of columns) {
@@ -95,6 +97,8 @@ export default function ResponsiveTable<T>(props: ResponsiveTableProps<T>) {
           if (isEmpty(value)) continue;
           if (mode === 'header') {
             headers.push(value);
+          } else if (mode === 'media') {
+            media.push(value);
           } else {
             fields.push({ label: col.cardLabel ?? col.title, value, block: mode === 'block' });
           }
@@ -110,9 +114,14 @@ export default function ResponsiveTable<T>(props: ResponsiveTableProps<T>) {
             style={{ ...(rowProps.style as React.CSSProperties), cursor: clickable ? 'pointer' : undefined }}
             styles={{ body: { padding: 12 } }}
           >
-            {headers.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8, fontSize: 15, fontWeight: 600, marginBottom: fields.length ? 8 : 0 }}>
-                {headers.map((h, i) => <span key={i}>{h}</span>)}
+            {(headers.length > 0 || media.length > 0) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: fields.length ? 8 : 0 }}>
+                {media.length > 0 && <div className="rt-card-media">{media}</div>}
+                {headers.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8, fontSize: 15, fontWeight: 600, minWidth: 0 }}>
+                    {headers.map((h, i) => <span key={i}>{h}</span>)}
+                  </div>
+                )}
               </div>
             )}
 
