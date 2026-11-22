@@ -8,6 +8,7 @@ import { api, type Category, type ItemStatus, type ListedItem, type MonthSummary
 import { useAuth } from '../../auth';
 import { buildSheet, downloadCsv, singleCategory, type SheetColumn } from '../../csv';
 import { currentMonthKey, formatMonth } from '../../month';
+import { cachedRows, cacheRows, FROM_LIST, useScrollRestore } from '../../listRestore';
 
 // Simple mode: Артикул, Фото, Наименование, Категория, Ед. изм., Количество — for the selected inventory month.
 // Counts are stored per month (MonthlyCount), so past months can be reopened and the full mode
@@ -27,10 +28,10 @@ export default function SimpleInventory() {
   const { message } = App.useApp();
   const { isAdmin } = useAuth();
   const [params, setParams] = useSearchParams();
-  const [items, setItems] = useState<ListedItem[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [months, setMonths] = useState<MonthSummary[] | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Rows for one list URL; on "back" the cached rows render at once so the scroll can be restored.
+  const [data, setData] = useState<{ key: string; rows: ListedItem[] } | null>(null);
+  const [categories, setCategories] = useState<Category[]>(() => cachedRows<Category[]>('categories') ?? []);
+  const [months, setMonths] = useState<MonthSummary[] | null>(() => cachedRows<MonthSummary[]>('months') ?? null);
   const [editMode, setEditMode] = useState(false);
   const [search, setSearch] = useState(params.get('q') ?? '');
   // Same breakpoint as ResponsiveTable: cards below md (768px).
@@ -42,10 +43,40 @@ export default function SimpleInventory() {
   // Without ?month= open the latest month that has counts, otherwise the current one.
   const month = params.get('month') ?? months?.[0]?.month ?? (months ? currentMonthKey() : null);
   const monthsWithData = useMemo(() => new Set(months?.map(m => m.month)), [months]);
+  // Table page lives in the URL, so "back" from an item returns to the same page.
+  const page = Number(params.get('page')) || 1;
+  const pageSize = Number(params.get('size')) || 50;
 
+  const listKey = month ? [month, categoryId ?? '', q, status].join('|') : null;
+  const fresh = listKey && data?.key === listKey ? data.rows : null;
+  const cached = listKey ? cachedRows<ListedItem[]>(listKey) : undefined;
+  const items: ListedItem[] = fresh ?? cached ?? [];
+  const loading = !fresh && !cached;
+  useScrollRestore(`${listKey}|${page}|${pageSize}`, !loading);
+
+  // Functional update: quick successive inline saves must not overwrite each other with stale rows.
+  const setItems = (update: (rows: ListedItem[]) => ListedItem[]) => {
+    if (!listKey) return;
+    setData(d => {
+      const base = (d?.key === listKey ? d.rows : cachedRows<ListedItem[]>(listKey)) ?? [];
+      const rows = update(base);
+      cacheRows(listKey, rows);
+      return { key: listKey, rows };
+    });
+  };
+
+  // Any filter change starts the table from page 1.
   const setParam = (key: string, value: string | undefined) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value); else next.delete(key);
+    next.delete('page');
+    setParams(next, { replace: true });
+  };
+
+  const setPage = (nextPage: number, nextSize: number) => {
+    const next = new URLSearchParams(params);
+    if (nextPage > 1) next.set('page', String(nextPage)); else next.delete('page');
+    if (nextSize !== 50) next.set('size', String(nextSize)); else next.delete('size');
     setParams(next, { replace: true });
   };
 
@@ -56,18 +87,22 @@ export default function SimpleInventory() {
   }, [search]);
 
   useEffect(() => {
-    api.categories().then(setCategories).catch(e => message.error(e.message));
-    api.months().then(setMonths).catch(e => { setMonths([]); message.error(e.message); });
+    api.categories().then(c => { cacheRows('categories', c); setCategories(c); }).catch(e => message.error(e.message));
+    api.months().then(m => { cacheRows('months', m); setMonths(m); }).catch(e => { setMonths([]); message.error(e.message); });
   }, [message]);
 
+  // Always refetch; cached rows (if any) stay on screen meanwhile — no spinner, no jump.
   useEffect(() => {
-    if (!month) return;
-    setLoading(true);
+    if (!month || !listKey) return;
+    let cancelled = false;
     api.items({ month, categoryId, q: q || undefined, status })
-      .then(setItems)
-      .catch(e => message.error(e.message))
-      .finally(() => setLoading(false));
-  }, [month, categoryId, q, status, message]);
+      .then(rows => {
+        cacheRows(listKey, rows);
+        if (!cancelled) setData({ key: listKey, rows });
+      })
+      .catch(e => message.error(e.message));
+    return () => { cancelled = true; };
+  }, [listKey, month, categoryId, q, status, message]);
 
   const saveQuantity = async (item: ListedItem, raw: string) => {
     if (!month) return;
@@ -266,9 +301,9 @@ export default function SimpleInventory() {
         columns={categoryId ? columns.filter(c => c.key !== 'category') : columns}
         dataSource={items}
         scroll={{ x: 'max-content' }}
-        pagination={{ defaultPageSize: 50, showSizeChanger: true, pageSizeOptions: [25, 50, 100, 200], hideOnSinglePage: true }}
+        pagination={{ current: page, pageSize, onChange: setPage, showSizeChanger: true, pageSizeOptions: [25, 50, 100, 200], hideOnSinglePage: true }}
         rowClassName={(i: ListedItem) => (i.archived ? 'row-archived' : '')}
-        onRow={(i: ListedItem) => ({ onClick: () => navigate(`/items/${i.id}?month=${month}`), style: { cursor: 'pointer' } })}
+        onRow={(i: ListedItem) => ({ onClick: () => navigate(`/items/${i.id}?month=${month}`, { state: FROM_LIST }), style: { cursor: 'pointer' } })}
       />
     </div>
   );

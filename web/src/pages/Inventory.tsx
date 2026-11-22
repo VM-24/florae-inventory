@@ -12,6 +12,7 @@ import { useAuth } from '../auth';
 import { formatMoney, sumMoney } from '../money';
 import { buildSheet, downloadCsv, singleCategory, type SheetColumn } from '../csv';
 import { currentMonthKey, formatMonth } from '../month';
+import { FROM_LIST, useScrollRestore } from '../listRestore';
 
 const STATUS_OPTIONS: { label: string; value: ItemStatus }[] = [
   { label: 'Активные', value: 'active' },
@@ -46,10 +47,22 @@ export default function Inventory() {
   // Without ?month= open the latest counted month, so the page never starts empty.
   const month = params.get('month') ?? months?.[0]?.month ?? (months ? currentMonthKey() : null);
   const monthsWithData = useMemo(() => new Set(months?.map(m => m.month)), [months]);
+  // Table page lives in the URL, so "back" from an item returns to the same page and scroll.
+  const page = Number(params.get('page')) || 1;
+  const pageSize = Number(params.get('size')) || 50;
+  useScrollRestore(`${params.toString()}|${month}`, !loading && month !== null);
+
+  const setPage = (nextPage: number, nextSize: number) => {
+    const next = new URLSearchParams(params);
+    if (nextPage > 1) next.set('page', String(nextPage)); else next.delete('page');
+    if (nextSize !== 50) next.set('size', String(nextSize)); else next.delete('size');
+    setParams(next, { replace: true });
+  };
 
   const setParam = (key: string, value: string | undefined) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value); else next.delete(key);
+    next.delete('page'); // filters start the table from page 1
     setParams(next, { replace: true });
   };
 
@@ -298,9 +311,9 @@ export default function Inventory() {
         columns={columns}
         dataSource={items}
         scroll={{ x: 'max-content' }}
-        pagination={{ defaultPageSize: 50, showSizeChanger: true, pageSizeOptions: [25, 50, 100, 200], hideOnSinglePage: true }}
+        pagination={{ current: page, pageSize, onChange: setPage, showSizeChanger: true, pageSizeOptions: [25, 50, 100, 200], hideOnSinglePage: true }}
         rowClassName={(i: ListedItem) => (i.archived ? 'row-archived' : '')}
-        onRow={(i: ListedItem) => ({ onClick: () => navigate(`/items/${i.id}?month=${month}`), style: { cursor: 'pointer' } })}
+        onRow={(i: ListedItem) => ({ onClick: () => navigate(`/items/${i.id}?month=${month}`, { state: FROM_LIST }), style: { cursor: 'pointer' } })}
         summary={() => (
           <Table.Summary fixed>
             <Table.Summary.Row>

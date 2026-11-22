@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Alert, App, Breadcrumb, Button, Card, Col, Descriptions, Empty, Form, Input, InputNumber,
   Popconfirm, Row, Select, Space, Spin, Table, Tag, Timeline, Typography,
@@ -12,6 +12,7 @@ import {
 import { useAuth } from '../auth';
 import { CURRENCY, formatMoney } from '../money';
 import { currentMonthKey, formatMonth } from '../month';
+import { cameFromList, useScrollTopOnEnter } from '../listRestore';
 import { readableId } from './Inventory';
 import { UNIT_OPTIONS } from '../units';
 import PhotoGallery from '../components/PhotoGallery';
@@ -109,6 +110,10 @@ export default function ItemPage() {
   const isNew = !id;
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  useScrollTopOnEnter();
+  // Back to the list: real "back" when we came from it (restores its page and scroll), else open it.
+  const backToList = () => (cameFromList(location.state) ? navigate(-1) : navigate(`/?month=${searchParams.get('month') ?? ''}`));
   const { message } = App.useApp();
   const { isAdmin } = useAuth();
   const [catalogForm] = Form.useForm<CatalogValues>();
@@ -125,7 +130,7 @@ export default function ItemPage() {
   const setMonth = (key: string) => {
     const next = new URLSearchParams(searchParams);
     next.set('month', key);
-    setSearchParams(next, { replace: true });
+    setSearchParams(next, { replace: true, state: location.state });
   };
 
 
@@ -279,7 +284,7 @@ export default function ItemPage() {
       <Breadcrumb
         style={{ marginBottom: 12 }}
         items={[
-          { title: <a onClick={() => navigate(`/?month=${month}`)}>Инвентарь</a> },
+          { title: <a onClick={backToList}>Инвентарь</a> },
           { title: isNew ? 'Новая позиция' : readableId(item!.number) },
         ]}
       />

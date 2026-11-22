@@ -10,3 +10,6 @@ uploads/
 .DS_Store
 .idea/
 .vscode/
+
+# Database dumps (data exports for servers)
+dumps/

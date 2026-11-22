@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Alert, App, AutoComplete, Breadcrumb, Button, Card, Col, Empty, Form, Input, InputNumber, Popconfirm, Row, Select, Space, Spin, Table,
   Tag, Typography,
@@ -8,6 +8,7 @@ import { DeleteOutlined, InboxOutlined, RollbackOutlined, SaveOutlined } from '@
 import { api, type Category, type ItemDetail, type MonthlyCount } from '../../api';
 import { useAuth } from '../../auth';
 import { currentMonthKey, formatMonth } from '../../month';
+import { cameFromList, useScrollTopOnEnter } from '../../listRestore';
 import { UNIT_OPTIONS } from '../../units';
 import PhotoGallery from '../../components/PhotoGallery';
 import MonthPicker from '../../components/MonthPicker';
@@ -26,6 +27,10 @@ export default function SimpleItemPage() {
   const isNew = !id;
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  useScrollTopOnEnter();
+  // Back to the list: real "back" when we came from it (restores its page and scroll), else open it.
+  const backToList = () => (cameFromList(location.state) ? navigate(-1) : navigate(`/?month=${searchParams.get('month') ?? ''}`));
   const { message } = App.useApp();
   const { isAdmin } = useAuth();
   const [form] = Form.useForm<Values>();
@@ -40,7 +45,7 @@ export default function SimpleItemPage() {
   const setMonth = (m: string) => {
     const next = new URLSearchParams(searchParams);
     next.set('month', m);
-    setSearchParams(next, { replace: true });
+    setSearchParams(next, { replace: true, state: location.state });
   };
 
   const fill = (i: ItemDetail) => form.setFieldsValue({
@@ -147,7 +152,7 @@ export default function SimpleItemPage() {
       <Breadcrumb
         style={{ marginBottom: 12 }}
         items={[
-          { title: <a onClick={() => navigate(`/?month=${month}`)}>Инвентарь</a> },
+          { title: <a onClick={backToList}>Инвентарь</a> },
           { title: isNew ? 'Новая позиция' : item!.sku ?? item!.name },
         ]}
       />
