@@ -74,6 +74,14 @@ export default function SimpleInventory() {
     try {
       const count = await api.saveCount(item.id, month, { currentQty: value });
       setItems(prev => prev.map(i => (i.id === item.id ? { ...i, count } : i)));
+      // One notification slot (key): quick edits down the column replace each other instead of stacking.
+      message.success({
+        key: 'quantity-saved',
+        content: value === null
+          ? `${item.name}: количество очищено`
+          : `${item.name}: ${value} ${item.unit} — сохранено`,
+        duration: 2,
+      });
       if (!monthsWithData.has(month)) {
         setMonths(m => [{ month, itemCount: 1 }, ...(m ?? [])].sort((a, b) => b.month.localeCompare(a.month)));
       }

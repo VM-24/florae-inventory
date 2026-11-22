@@ -36,6 +36,9 @@ export function createApp() {
 
   // SPA (web/dist) served from the root; client-side routes fall back to index.html.
   const webDist = path.resolve(process.cwd(), 'web/dist');
+  // Hashed build assets never change under the same name — cache for a year.
+  // Everything else (index.html, sw.js, manifest) stays max-age=0 so PWA updates arrive at once.
+  app.use('/assets', express.static(path.join(webDist, 'assets'), { immutable: true, maxAge: '1y' }));
   app.use(express.static(webDist));
   app.get(/^(?!\/api|\/uploads|\/health).*/, (_req, res) => {
     res.sendFile(path.join(webDist, 'index.html'), err => {

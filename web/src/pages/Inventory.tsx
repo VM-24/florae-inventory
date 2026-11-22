@@ -21,6 +21,9 @@ const STATUS_OPTIONS: { label: string; value: ItemStatus }[] = [
 
 type CountField = 'currentQty' | 'shortageQty' | 'brokenQty' | 'endOfMonthQty';
 const NULLABLE: CountField[] = ['currentQty', 'endOfMonthQty'];
+const FIELD_TITLES: Record<CountField, string> = {
+  currentQty: 'текущий', shortageQty: 'недостача', brokenQty: 'списание', endOfMonthQty: 'конец месяца',
+};
 
 export const readableId = (n: number) => `INV-${String(n).padStart(4, '0')}`;
 const qty = (v: number | null | undefined) => (v === null || v === undefined ? '—' : v);
@@ -91,6 +94,11 @@ export default function Inventory() {
     try {
       const count = await api.saveCount(item.id, month, { [field]: value } as CountInput);
       setItems(prev => prev.map(i => (i.id === item.id ? { ...i, count } : i)));
+      message.success({
+        key: 'count-saved',
+        content: `${item.name}: ${FIELD_TITLES[field]} — ${value ?? '—'}, сохранено`,
+        duration: 2,
+      });
       if (!monthsWithData.has(month)) {
         setMonths(m => [{ month, itemCount: 1 }, ...(m ?? [])].sort((a, b) => b.month.localeCompare(a.month)));
       }

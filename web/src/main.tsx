@@ -6,6 +6,7 @@ import ruRU from 'antd/locale/ru_RU';
 import 'dayjs/locale/ru';
 import dayjs from 'dayjs';
 import App from './App';
+import PwaReloadPrompt from './components/PwaReloadPrompt';
 import { AuthProvider } from './auth';
 import 'antd/dist/reset.css';
 import './styles.css';
@@ -29,6 +30,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <BrowserRouter>
           <AuthProvider>
             <App />
+            <PwaReloadPrompt />
           </AuthProvider>
         </BrowserRouter>
       </AntApp>

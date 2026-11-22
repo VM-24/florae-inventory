@@ -23,6 +23,18 @@ The first start creates the owner `ADMIN_LOGIN` with password `ADMIN_PASSWORD`, 
 it on first login. After that the owner manages users in the panel (**Пользователи**).
 From the command line: `npm run user:create -- <login> <password> [OWNER|ADMIN|STAFF] [name]`.
 
+## Installable app (PWA)
+
+The panel is a PWA (`vite-plugin-pwa`, config in `web/vite.config.ts`):
+- **Install:** "Add to Home Screen" on iPhone/Android, or the install icon in Chrome/Edge's
+  address bar. It then opens full screen with its own icon.
+- **Cache:** only the app shell is precached. `/api` is always network-only, so stock figures
+  are never stale. Photo files (`/uploads`, immutable UUID names) are cached on the device.
+- **Updates:** a new deploy shows "Доступна новая версия → Обновить". There is no silent reload,
+  so an open count is not interrupted. Installed apps check for updates every hour.
+- **Requirements:** browsers enable the service worker only over HTTPS (or on `localhost`).
+- **Icons:** `web/public/pwa-*.png`, `apple-touch-icon.png` and `favicon-32x32.png`, taken from florae.
+
 ## Users and roles
 
 | Role | Can |
