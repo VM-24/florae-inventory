@@ -1,0 +1,127 @@
+generator client {
+  provider = "prisma-client-js"
+  // Alpine (musl) + OpenSSL 3 for the Docker image.
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN // catalog, prices, categories, archive/delete
+  STAFF // read everything, enter counts and photos
+  OWNER // "главный админ": everything ADMIN can, plus managing users
+}
+
+model User {
+  id                 String    @id @default(uuid())
+  login              String    @unique
+  passwordHash       String
+  name               String
+  role               Role      @default(STAFF)
+  active             Boolean   @default(true) // false = blocked, cannot log in
+  mustChangePassword Boolean   @default(false) // set for issued/reset passwords; API is locked until changed
+  lastLoginAt        DateTime?
+  createdAt          DateTime  @default(now())
+
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+// Section of the count sheet: "Приборы", "Барная посуда", ...
+// sortOrder keeps the list in the same order as the physical walk-through ("shelf-to-sheet").
+model Category {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items Item[]
+
+  @@map("categories")
+}
+
+// Catalog entry: what does not change month to month.
+// The sheet columns that do change (current, shortage, write-off, end of month) live in MonthlyCount.
+// The simple UI mode shows sku, photos, name, description, category, unit and quantity
+// (current month's count); the other columns are kept for the full mode.
+model Item {
+  id         String    @id @default(uuid())
+  number     Int       @unique @default(autoincrement()) // internal running number: INV-0001
+  sku        String?   @unique // "Артикул" — user-defined article code
+  categoryId String? // optional in the DB; the forms require it
+  name       String
+  description String? // "Описание": free-text hint, e.g. "Вазы для холодильника"
+  unit       String    @default("шт") // unit of measure: шт, кг, л, уп., порц, …
+  openingQty Int? // "Открытие" — quantity at opening; null = not recorded
+  unitPrice  Decimal   @default(0) @db.Decimal(12, 2) // "Цена/ед", PLN
+  archivedAt DateTime? // soft delete: archived items are hidden but keep their history
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  category Category?      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  counts   MonthlyCount[]
+  photos   ItemPhoto[]
+
+  @@unique([categoryId, name])
+  @@index([archivedAt])
+  @@map("items")
+}
+
+// Item photos. The first by sortOrder is the cover shown in lists.
+// Files live under UPLOADS_DIR; rows are removed with the item, files by the app.
+model ItemPhoto {
+  id        String   @id @default(uuid())
+  itemId    String
+  url       String // /uploads/<uuid>.<ext>
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId, sortOrder])
+  @@map("item_photos")
+}
+
+// One month of the count sheet for one item. Past months are kept, so any month can be reopened.
+//   Текущий | Недостача | Списание | На конец месяца | примечание
+// Sums ("Сумма списания", "Сумма недостачи") are derived from quantity × Item.unitPrice on read.
+model MonthlyCount {
+  id            String   @id @default(uuid())
+  itemId        String
+  month         DateTime @db.Date // first day of the month: 2026-01-01
+  currentQty    Int? // "Текущий" — physical count; null = not counted yet this month
+  shortageQty   Int      @default(0) // "Недостача" — missing items
+  brokenQty     Int      @default(0) // "Списание" — broken / written off
+  endOfMonthQty Int? // "На конец месяца"
+  note          String? // "20 дозаказ в пути", "2 из них без ручки"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, month])
+  @@index([month])
+  @@map("monthly_counts")
+}
+
+// Append-only change log. Only changed fields are stored in before/after.
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String // item.create | item.update | item.archive | item.restore | item.delete | category.*
+  entity    String // item | category
+  entityId  String?
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId, createdAt])
+  @@map("audit_logs")
+}
