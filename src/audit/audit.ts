@@ -5,7 +5,7 @@ type Tx = Prisma.TransactionClient;
 export interface AuditInput {
   userId: string | null;
   action: string;
-  entity: 'item' | 'category' | 'user';
+  entity: 'item' | 'category' | 'user' | 'role';
   entityId: string;
   before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null;

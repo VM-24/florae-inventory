@@ -9,10 +9,30 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
-  ADMIN // catalog, prices, categories, archive/delete
-  STAFF // read everything, enter counts and photos
-  OWNER // "главный админ": everything ADMIN can, plus managing users
+// A role is a named set of permissions. The permission catalog lives in code
+// (src/auth/permissions.ts): a permission nobody checks would be a fake checkbox.
+// The owner role ("Владелец") always has the whole catalog, including permissions added later,
+// and cannot be edited or deleted.
+model Role {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  isOwner   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  users       User[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model RolePermission {
+  roleId     String
+  permission String // key from the catalog, e.g. "items.edit"
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permission])
+  @@map("role_permissions")
 }
 
 model User {
@@ -20,12 +40,13 @@ model User {
   login              String    @unique
   passwordHash       String
   name               String
-  role               Role      @default(STAFF)
+  roleId             String
   active             Boolean   @default(true) // false = blocked, cannot log in
   mustChangePassword Boolean   @default(false) // set for issued/reset passwords; API is locked until changed
   lastLoginAt        DateTime?
   createdAt          DateTime  @default(now())
 
+  role      Role       @relation(fields: [roleId], references: [id], onDelete: Restrict)
   auditLogs AuditLog[]
 
   @@map("users")
@@ -113,8 +134,8 @@ model MonthlyCount {
 model AuditLog {
   id        String   @id @default(uuid())
   userId    String?
-  action    String // item.create | item.update | item.archive | item.restore | item.delete | category.*
-  entity    String // item | category
+  action    String // item.* | count.* | category.* | user.* | role.*
+  entity    String // item | category | user | role
   entityId  String?
   before    Json?
   after     Json?

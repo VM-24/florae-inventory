@@ -21,7 +21,7 @@ to the backend; set `BACKEND_PORT` if the backend is not on 3000).
 
 The first start creates the owner `ADMIN_LOGIN` with password `ADMIN_PASSWORD`, who must change
 it on first login. After that the owner manages users in the panel (**Пользователи**).
-From the command line: `npm run user:create -- <login> <password> [OWNER|ADMIN|STAFF] [name]`.
+From the command line: `npm run user:create -- <login> <password> [role name | OWNER|ADMIN|STAFF] [name]`.
 
 ## Installable app (PWA)
 
@@ -35,25 +35,62 @@ The panel is a PWA (`vite-plugin-pwa`, config in `web/vite.config.ts`):
 - **Requirements:** browsers enable the service worker only over HTTPS (or on `localhost`).
 - **Icons:** `web/public/pwa-*.png`, `apple-touch-icon.png` and `favicon-32x32.png`, taken from florae.
 
-## Users and roles
+## Users, roles and permissions
 
-| Role | Can |
-|------|-----|
-| **OWNER** (Владелец, "главный админ") | everything ADMIN can, plus managing users |
-| **ADMIN** (Администратор) | catalog: create/edit items, prices, categories, archive and delete |
-| **STAFF** (Сотрудник) | view everything, enter counts, add photos |
+A **role** is a named set of **permissions**. The permission catalog lives in code
+(`src/auth/permissions.ts`), because a permission that no code checks would be a fake checkbox.
+The owner builds roles from the catalog in **Пользователи и роли → Роли и права**: create a role,
+tick its permissions, rename it, delete it (only when nobody uses it).
 
-As in florae:
-- The owner creates a user and the server generates the start password, which is shown once.
-- The user must change it on first login. Until then the API answers 403 `MUST_CHANGE_PASSWORD`
-  to everything except `/me`.
-- The owner can rename users, change their role, block and unblock them, and reset passwords
-  (again shown once, again a forced change).
-- A blocked user loses access right away, because the role and active flag are re-read on
-  every request.
-- Guards: nobody can block themselves or change their own role, and at least one active owner
+| Permission | Allows |
+|------------|--------|
+| `inventory.view` | see the inventory and each item's change history |
+| `inventory.count` | enter quantities. Works on its own: the list and item cards become read-only, and history, photos and catalog stay closed. A "count-only" role is just this one permission |
+| `inventory.photos` | add and delete photos |
+| `items.create` | create items |
+| `items.edit_sku` | change the sku (артикул) |
+| `items.edit_name` | change the name |
+| `items.edit_description` | change the description |
+| `items.edit_category` | change the category |
+| `items.edit_unit` | change the unit of measure |
+| `items.edit_price` | change the price (full mode) |
+| `items.edit_opening` | change the opening qty (full mode) |
+| `items.archive` | archive and restore items |
+| `items.delete` | delete archived items permanently |
+| `counts.delete` | delete a month's count (full mode) |
+| `categories.manage` | create, rename and delete categories |
+| `users.manage` | create and block users, change their role, reset passwords |
+| `roles.manage` | create roles and set their permissions |
+| `audit.view` | see the journal of all changes |
+
+Preset roles are created on startup if missing:
+- **Владелец** always has every permission, including ones added in future versions. It can't be
+  edited or deleted.
+- **Администратор** has everything except users and roles.
+- **Сотрудник** can view, count and add photos.
+
+How it works:
+- **Server-side checks.** The server checks permissions on every request, field by field for
+  `PATCH /items/:id` (see `ITEM_FIELD_PERMISSIONS`). The UI also hides what the role can't do,
+  but the server is what enforces it.
+- **Changes apply at once.** Role and permissions are re-read on every request, so editing a role
+  or blocking a user takes effect immediately.
+- **Users (as in florae).** The server generates the start password and shows it once. The user
+  must change it on first login: until then the API answers 403 `MUST_CHANGE_PASSWORD` to
+  everything except `/me`. Resetting a password works the same way.
+- **Guards.** Nobody can block themselves or change their own role, and at least one active owner
   must remain.
-- Every user can change their own password ("Сменить пароль" in the sidebar).
+- **Own password.** Anyone can change their own password ("Сменить пароль" in the sidebar).
+
+### Change history
+
+Every change writes an `AuditLog` row in the same transaction as the change: who, when, which
+fields, before and after.
+- **Item page:** "История изменений" shows a timeline with user (name and login), date and time,
+  and "was → became" for each field. It's available in both UI modes.
+- **Журнал** (`audit.view`): all changes to items, counts, photos, categories, users and roles,
+  filterable by section and user, paged by "Показать ещё". Deleted objects keep their name in the
+  journal.
 
 ## UI modes
 
@@ -106,9 +143,8 @@ January 2026.
 - **Money as Decimal, totals in grosze.** No float drift in totals.
 - **Counts per month, history kept.** The list has a month picker (← →, months with data
   are marked with a dot). The "Прошлый" column shows the previous counted month for comparison.
-- **Role-based permissions.** `STAFF` can enter monthly counts and photos. `ADMIN` also
-  manages the catalog, prices, categories, archive and delete, and can remove a month's
-  count. `OWNER` also manages users. The server enforces this, not just the UI.
+- **Permission-based roles.** Configurable roles built from a permission catalog, checked
+  field by field on the server. See "Users, roles and permissions".
 - **Fast count entry.** "Режим пересчёта" on the list turns the count columns into inputs
   that save on blur into the selected month.
 - **CSV export** of the selected month, in Excel-friendly format (`;`, UTF-8 BOM, decimal comma).
@@ -120,10 +156,13 @@ January 2026.
 | POST   | `/login`                 | —     | `{ login, password }` → `{ token }`     |
 | GET    | `/me`                    | any   | includes `mustChangePassword`           |
 | POST   | `/me/password`           | any   | `{ current, next }` (≥ 8 chars)         |
-| GET    | `/users`                 | owner |                                         |
-| POST   | `/users`                 | owner | `{ login, name, role }` → user + one-time `password` |
-| PATCH  | `/users/:id`             | owner | `{ name?, role?, active? }`; 409 on self-lockout / last owner |
-| POST   | `/users/:id/reset-password` | owner | → one-time `password`               |
+| GET    | `/users`                 | users.manage |                                  |
+| POST   | `/users`                 | users.manage | `{ login, name, roleId }` → user + one-time `password` |
+| PATCH  | `/users/:id`             | users.manage | `{ name?, roleId?, active? }`; 409 on self-lockout / last owner |
+| POST   | `/users/:id/reset-password` | users.manage | → one-time `password`        |
+| GET    | `/roles`, `/permissions` | roles.manage or users.manage | roles with permissions; the catalog |
+| POST/PATCH/DELETE | `/roles[/:id]` | roles.manage | owner role is read-only; 409 when deleting a role in use |
+| GET    | `/audit?userId&entity&cursor` | audit.view | journal, 50 per page, `nextCursor` |
 | GET    | `/categories`            | any   | with active `itemCount`                 |
 | POST/PATCH/DELETE | `/categories[/:id]` | admin | DELETE → 409 if the category has items |
 | GET    | `/months`                | any   | months that have counts, newest first   |

@@ -11,7 +11,8 @@ src/
   app.ts              express app (createApp — used by tests too)
   config.ts           CURRENCY='PLN', JWT secret, uploads dir
   http/errors.ts      HttpError, asyncHandler, central errorHandler (Zod/Prisma → HTTP)
-  auth/               JWT middleware (+ forced password change gate), login/me/users routes, users.ts (owner bootstrap, user management)
+  auth/               permissions.ts (catalog, presets) · middleware (requireAuth/requirePermission) · routes (me/users/roles) · users.ts
+  audit/routes.ts     GET /audit — journal with entity titles; history UI in web/src/history.tsx
   items/              schemas (zod) · repository (prisma + audit in one tx) · routes · serialize · money
                       Item = catalog; MonthlyCount = one month of counts per item (month = 1st day)
   categories/routes.ts
@@ -36,7 +37,10 @@ test/                 vitest; route tests mock src/items/repository
 - Sums (`brokenSum`, `shortageSum`, `currentValue`) are derived in `serializeCount` — never stored.
 - Months travel as `YYYY-MM` in the API (`monthKey` schema) and are stored as the first day of the month.
 - Every mutation writes `AuditLog` inside the same `prisma.$transaction`.
-- Roles: OWNER ⊃ ADMIN ⊃ STAFF. Catalog routes use `requireAdmin` (ADMIN or OWNER), user management `requireOwner`; monthly counts (PUT) and photos are open to STAFF.
+- Permissions: catalog in `src/auth/permissions.ts`; roles = rows in `roles` + `role_permissions`. Routes use
+  `requirePermission(...)` (any-of) and `requireFieldPermissions(ITEM_FIELD_PERMISSIONS)` for item PATCH; the UI uses
+  `useAuth().can(key)`. A new action needs a catalog key, a server check and a UI check — all three.
+  The owner role (`isOwner`) has every key implicitly and is read-only.
 - Users: never return `passwordHash`; issued/reset passwords are returned once and set `mustChangePassword` (API locked until changed). Keep the self-lockout and last-owner guards in `updateUser`.
 - Hard delete only for archived items (409 otherwise).
 - UI language is Russian; code and comments are English.

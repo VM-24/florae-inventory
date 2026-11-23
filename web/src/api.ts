@@ -35,13 +35,18 @@ const json = (method: string, data?: unknown): RequestInit => ({
   body: data === undefined ? undefined : JSON.stringify(data),
 });
 
-// OWNER = главный админ (also manages users), ADMIN = catalog, STAFF = counts and photos.
-export type Role = 'OWNER' | 'ADMIN' | 'STAFF';
+// A role is a named set of permissions; the owner role always has all of them.
+export interface RoleRef {
+  id: string;
+  name: string;
+  isOwner: boolean;
+}
 
 export interface Me {
   login: string;
   name: string;
-  role: Role;
+  role: RoleRef;
+  permissions: string[];
   mustChangePassword: boolean;
   currency: string;
 }
@@ -50,11 +55,35 @@ export interface PanelUser {
   id: string;
   login: string;
   name: string;
-  role: Role;
+  role: RoleRef;
   active: boolean;
   mustChangePassword: boolean;
   lastLoginAt: string | null;
   createdAt: string;
+}
+
+export interface PanelRole extends RoleRef {
+  userCount: number;
+  permissions: string[];
+}
+
+export interface PermissionGroup {
+  key: string;
+  label: string;
+  permissions: { key: string; label: string }[];
+}
+
+export interface AuditEntry {
+  id: string;
+  action: string;
+  entity: 'item' | 'category' | 'user' | 'role';
+  entityId: string | null;
+  entityTitle: string | null;
+  entityExists: boolean;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  createdAt: string;
+  user: { id: string; name: string; login: string } | null;
 }
 
 export interface Category {
@@ -153,11 +182,23 @@ export const api = {
     request<{ ok: boolean }>('/me/password', json('POST', { current, next })),
 
   users: () => request<PanelUser[]>('/users'),
-  createUser: (data: { login: string; name: string; role: Role }) =>
+  createUser: (data: { login: string; name: string; roleId: string }) =>
     request<PanelUser & { password: string }>('/users', json('POST', data)),
-  updateUser: (id: string, patch: { name?: string; role?: Role; active?: boolean }) =>
+  updateUser: (id: string, patch: { name?: string; roleId?: string; active?: boolean }) =>
     request<PanelUser>(`/users/${id}`, json('PATCH', patch)),
   resetUserPassword: (id: string) => request<{ password: string }>(`/users/${id}/reset-password`, json('POST')),
+
+  roles: () => request<PanelRole[]>('/roles'),
+  permissionGroups: () => request<PermissionGroup[]>('/permissions'),
+  createRole: (data: { name: string; permissions: string[] }) => request<PanelRole>('/roles', json('POST', data)),
+  updateRole: (id: string, patch: { name?: string; permissions?: string[] }) =>
+    request<PanelRole>(`/roles/${id}`, json('PATCH', patch)),
+  deleteRole: (id: string) => request<void>(`/roles/${id}`, { method: 'DELETE' }),
+
+  audit: (params: { userId?: string; entity?: string; cursor?: string }) => {
+    const query = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString();
+    return request<{ items: AuditEntry[]; nextCursor: string | null }>(`/audit${query ? `?${query}` : ''}`);
+  },
 
   categories: () => request<Category[]>('/categories'),
   createCategory: (data: { name: string; sortOrder?: number }) =>

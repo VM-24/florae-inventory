@@ -32,7 +32,7 @@ const qty = (v: number | null | undefined) => (v === null || v === undefined ? '
 export default function Inventory() {
   const navigate = useNavigate();
   const { message } = App.useApp();
-  const { isAdmin } = useAuth();
+  const { can } = useAuth();
   const [params, setParams] = useSearchParams();
   const [items, setItems] = useState<ListedItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -235,14 +235,16 @@ export default function Inventory() {
           <MonthPicker value={month} onChange={m => setParam('month', m)} monthsWithData={monthsWithData} />
         </Space>
         <Space wrap>
-          <Tooltip title="Вводить текущее количество, недостачу, списание и остаток на конец месяца прямо в таблице — за выбранный месяц.">
-            <Space>
-              <Switch checked={countMode} onChange={setCountMode} />
-              <span>Режим пересчёта</span>
-            </Space>
-          </Tooltip>
+          {can('inventory.count') && (
+            <Tooltip title="Вводить текущее количество, недостачу, списание и остаток на конец месяца прямо в таблице — за выбранный месяц.">
+              <Space>
+                <Switch checked={countMode} onChange={setCountMode} />
+                <span>Режим пересчёта</span>
+              </Space>
+            </Tooltip>
+          )}
           <Button icon={<DownloadOutlined />} onClick={exportCsv} disabled={!items.length}>CSV</Button>
-          {isAdmin && (
+          {can('items.create') && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate(`/items/new?month=${month}${categoryId ? `&category=${categoryId}` : ''}`)}>
               Позиция
             </Button>

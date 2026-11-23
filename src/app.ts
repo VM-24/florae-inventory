@@ -6,6 +6,7 @@ import { requireAuth } from './auth/middleware';
 import { loginRouter, meRouter, userRouter } from './auth/routes';
 import { itemRouter } from './items/routes';
 import { categoryRouter } from './categories/routes';
+import { auditRouter } from './audit/routes';
 import { errorHandler } from './http/errors';
 
 export function createApp() {
@@ -31,6 +32,7 @@ export function createApp() {
   app.use('/api', userRouter);
   app.use('/api', categoryRouter);
   app.use('/api', itemRouter);
+  app.use('/api', auditRouter);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Не найдено' }));
   app.use(errorHandler);
 

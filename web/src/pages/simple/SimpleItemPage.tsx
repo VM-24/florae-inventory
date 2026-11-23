@@ -5,7 +5,9 @@ import {
   Tag, Typography,
 } from 'antd';
 import { DeleteOutlined, InboxOutlined, RollbackOutlined, SaveOutlined } from '@ant-design/icons';
-import { api, type Category, type ItemDetail, type MonthlyCount } from '../../api';
+import { api, type Category, type HistoryEntry, type ItemDetail, type MonthlyCount } from '../../api';
+import { HistoryHint, HistoryList } from '../../history';
+import { editableFields, ITEM_FIELD_PERMISSIONS, type ItemField } from '../../permissions';
 import { useAuth } from '../../auth';
 import { currentMonthKey, formatMonth } from '../../month';
 import { cameFromList, useScrollTopOnEnter } from '../../listRestore';
@@ -32,7 +34,8 @@ export default function SimpleItemPage() {
   // Back to the list: real "back" when we came from it (restores its page and scroll), else open it.
   const backToList = () => (cameFromList(location.state) ? navigate(-1) : navigate(`/?month=${searchParams.get('month') ?? ''}`));
   const { message } = App.useApp();
-  const { isAdmin } = useAuth();
+  const { can } = useAuth();
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [form] = Form.useForm<Values>();
   const [item, setItem] = useState<ItemDetail | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -71,11 +74,14 @@ export default function SimpleItemPage() {
     }
     setLoading(true);
     api.item(id)
-      .then(i => { setItem(i); fill(i); })
+      .then(i => { setItem(i); fill(i); void loadHistory(i.id); })
       .catch(e => message.error(e.message))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  const loadHistory = (itemId: string) =>
+    (can('inventory.view') ? api.itemHistory(itemId).then(setHistory).catch(() => {}) : Promise.resolve());
 
   const save = async (v: Values) => {
     setSaving(true);
@@ -102,10 +108,13 @@ export default function SimpleItemPage() {
         navigate(`/items/${created.id}?month=${month}`, { replace: true });
         return;
       }
-      if (isAdmin) await api.updateItem(id, catalog);
+      // Only fields this user may change; the server enforces the same rule.
+      const patch = editableFields(catalog, can);
+      if (Object.keys(patch).length) await api.updateItem(id, patch);
       const quantity = v.quantity ?? null;
       if (quantity !== quantityIn(item!, month)) await api.saveCount(id, month, { currentQty: quantity });
       const fresh = await api.item(id);
+      void loadHistory(id);
       setItem(fresh);
       fill(fresh);
       message.success('Сохранено');
@@ -119,6 +128,7 @@ export default function SimpleItemPage() {
   const refresh = async () => {
     const fresh = await api.item(id!);
     setItem(fresh);
+    void loadHistory(fresh.id);
   };
 
   const setArchived = async (archived: boolean) => {
@@ -145,7 +155,11 @@ export default function SimpleItemPage() {
   if (!isNew && !item) return <Empty description="Позиция не найдена" />;
 
   const monthsWithData = new Set(item?.counts.map(c => c.month));
-  const catalogDisabled = readOnly || !isAdmin;
+  // Each card field has its own permission; a new item needs only items.create.
+  const fieldDisabled = (field: ItemField) => readOnly || !can(isNew ? 'items.create' : ITEM_FIELD_PERMISSIONS[field]);
+  const anyFieldEditable = (['sku', 'name', 'description', 'categoryId', 'unit'] as ItemField[]).some(f => !fieldDisabled(f));
+  const quantityDisabled = readOnly || !can('inventory.count');
+  const canSave = isNew ? can('items.create') : anyFieldEditable || !quantityDisabled;
 
   return (
     <div style={{ maxWidth: 900 }}>
@@ -161,21 +175,21 @@ export default function SimpleItemPage() {
           {isNew ? 'Новая позиция' : item!.name}
           {item?.archived && <Tag style={{ marginLeft: 8 }}>Архив</Tag>}
         </Typography.Title>
-        {!isNew && isAdmin && (
+        {!isNew && (can('items.archive') || can('items.delete')) && (
           <Space wrap>
             {item!.archived ? (
               <>
-                <Button icon={<RollbackOutlined />} onClick={() => setArchived(false)}>Восстановить</Button>
-                <Popconfirm
+                {can('items.archive') && <Button icon={<RollbackOutlined />} onClick={() => setArchived(false)}>Восстановить</Button>}
+                {can('items.delete') && <Popconfirm
                   title="Удалить навсегда?"
                   description="Позиция и её фото будут удалены."
                   okText="Удалить" cancelText="Отмена" okButtonProps={{ danger: true }}
                   onConfirm={remove}
                 >
                   <Button danger icon={<DeleteOutlined />}>Удалить</Button>
-                </Popconfirm>
+                </Popconfirm>}
               </>
-            ) : (
+            ) : can('items.archive') && (
               <Popconfirm title="Переместить в архив?" description="Позиция скроется из списка, её можно будет восстановить." okText="В архив" cancelText="Отмена" onConfirm={() => setArchived(true)}>
                 <Button icon={<InboxOutlined />}>В архив</Button>
               </Popconfirm>
@@ -194,8 +208,11 @@ export default function SimpleItemPage() {
             <PhotoGallery
               itemId={item!.id}
               photos={item!.photos}
-              onChange={photos => setItem(prev => (prev ? { ...prev, photos, photoUrl: photos[0]?.url ?? null } : prev))}
-              readOnly={readOnly}
+              onChange={photos => {
+                setItem(prev => (prev ? { ...prev, photos, photoUrl: photos[0]?.url ?? null } : prev));
+                void loadHistory(item!.id);
+              }}
+              readOnly={readOnly || !can('inventory.photos')}
             />
           )}
         </Col>
@@ -204,17 +221,17 @@ export default function SimpleItemPage() {
           <Card size="small" style={{ marginBottom: 16 }}>
             <Form<Values> form={form} layout="vertical" onFinish={save} requiredMark="optional">
               <Form.Item name="sku" label="Артикул" rules={[{ max: 50 }]}>
-                <Input disabled={catalogDisabled} placeholder="Необязательно" style={{ maxWidth: 260 }} />
+                <Input disabled={fieldDisabled('sku')} placeholder="Необязательно" style={{ maxWidth: 260 }} />
               </Form.Item>
               <Form.Item name="name" label="Наименование" rules={[{ required: true, whitespace: true, message: 'Укажите название' }, { max: 200 }]}>
-                <Input disabled={catalogDisabled} />
+                <Input disabled={fieldDisabled('name')} />
               </Form.Item>
               <Form.Item name="description" label="Описание" rules={[{ max: 1000 }]}>
-                <Input.TextArea disabled={catalogDisabled} rows={2} placeholder="Необязательно" />
+                <Input.TextArea disabled={fieldDisabled('description')} rows={2} placeholder="Необязательно" />
               </Form.Item>
               <Form.Item name="categoryId" label="Категория" rules={[{ required: true, message: 'Выберите категорию' }]}>
                 <Select
-                  disabled={catalogDisabled}
+                  disabled={fieldDisabled('categoryId')}
                   options={categories.map(c => ({ value: c.id, label: c.name }))}
                   showSearch={{ optionFilterProp: 'label' }}
                   style={{ maxWidth: 360 }}
@@ -227,7 +244,7 @@ export default function SimpleItemPage() {
                   rules={[{ required: true, whitespace: true, message: 'Укажите единицу' }, { max: 20 }]}
                 >
                   <AutoComplete
-                    disabled={catalogDisabled}
+                    disabled={fieldDisabled('unit')}
                     options={UNIT_OPTIONS}
                     filterOption={(input, option) => String(option?.value ?? '').toLowerCase().startsWith(input.toLowerCase())}
                     style={{ width: 140 }}
@@ -237,10 +254,10 @@ export default function SimpleItemPage() {
                   <MonthPicker value={month} onChange={setMonth} monthsWithData={monthsWithData} width={150} />
                 </Form.Item>
                 <Form.Item name="quantity" label={`Количество за ${formatMonth(month)}`}>
-                  <InputNumber disabled={readOnly} min={0} precision={0} placeholder="—" style={{ width: 160 }} />
+                  <InputNumber disabled={quantityDisabled} min={0} precision={0} placeholder="—" style={{ width: 160 }} />
                 </Form.Item>
               </Space>
-              {!readOnly && (
+              {!readOnly && canSave && (
                 // Own block: the unit/quantity row above is inline-flex, so an inline button would join that row.
                 <div style={{ paddingTop: 8, borderTop: '1px solid #f0f0f0' }}>
                   <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving} size="large">
@@ -273,6 +290,12 @@ export default function SimpleItemPage() {
           )}
         </Col>
       </Row>
+
+      {!isNew && can('inventory.view') && (
+        <Card size="small" title="История изменений" extra={<HistoryHint />} style={{ marginTop: 8 }}>
+          <HistoryList entries={history} categories={categories} />
+        </Card>
+      )}
     </div>
   );
 }

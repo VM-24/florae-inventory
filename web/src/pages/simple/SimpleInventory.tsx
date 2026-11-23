@@ -26,7 +26,7 @@ export const quantityOf = (i: ListedItem): number | null => i.count?.currentQty 
 export default function SimpleInventory() {
   const navigate = useNavigate();
   const { message } = App.useApp();
-  const { isAdmin } = useAuth();
+  const { can } = useAuth();
   const [params, setParams] = useSearchParams();
   // Rows for one list URL; on "back" the cached rows render at once so the scroll can be restored.
   const [data, setData] = useState<{ key: string; rows: ListedItem[] } | null>(null);
@@ -209,14 +209,14 @@ export default function SimpleInventory() {
 
   if (!month) return <div style={{ textAlign: 'center', padding: 48 }}><Spin size="large" /></div>;
 
-  const editSwitch = (
+  const editSwitch = can('inventory.count') && (
     <Space>
       <Switch checked={editMode} onChange={setEditMode} />
       <span>Редактировать количество</span>
     </Space>
   );
   const csvButton = <Button icon={<DownloadOutlined />} onClick={exportCsv} disabled={!items.length}>CSV</Button>;
-  const addButton = isAdmin && (
+  const addButton = can('items.create') && (
     <Button
       type="primary"
       icon={<PlusOutlined />}

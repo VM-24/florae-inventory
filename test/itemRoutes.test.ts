@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
-import type { Role } from '@prisma/client';
+import { PRESET_ROLES } from '../src/auth/permissions';
 
 const repo = vi.hoisted(() => ({
   listItems: vi.fn(),
@@ -40,15 +40,21 @@ const JAN_2026 = new Date('2026-01-01T00:00:00Z');
 
 let server: Server;
 let base: string;
-let role: Role;
+// Permission sets of the preset roles; tests switch between them.
+const ADMIN = PRESET_ROLES.find(r => r.name === 'Администратор')!.permissions;
+const STAFF = PRESET_ROLES.find(r => r.name === 'Сотрудник')!.permissions;
+let permissions: string[];
 
 beforeEach(() => {
   vi.clearAllMocks();
-  role = 'ADMIN';
+  permissions = ADMIN;
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    req.auth = { userId: 'u1', login: 'test', name: 'Test', role, mustChangePassword: false };
+    req.auth = {
+      userId: 'u1', login: 'test', name: 'Test', roleId: 'r1', roleName: 'Test', isOwner: false,
+      permissions: new Set(permissions), mustChangePassword: false,
+    };
     next();
   });
   app.use('/api', itemRouter);
@@ -99,14 +105,14 @@ describe('items API', () => {
   });
 
   it('forbids staff from creating or editing catalog data', async () => {
-    role = 'STAFF';
+    permissions = STAFF;
     expect((await send('POST', '/items', { categoryId: CATEGORY, name: 'Рокс' })).status).toBe(403);
     expect((await send('PATCH', '/items/i1', { unitPrice: 1 })).status).toBe(403);
     expect(repo.updateItem).not.toHaveBeenCalled();
   });
 
   it('lets staff enter a monthly count', async () => {
-    role = 'STAFF';
+    permissions = STAFF;
     repo.upsertCount.mockResolvedValue({ month: '2026-01' });
     const res = await send('PUT', '/items/i1/counts/2026-01', { currentQty: 10, brokenQty: 2 });
     expect(res.status).toBe(200);
@@ -119,9 +125,9 @@ describe('items API', () => {
   });
 
   it('only admins delete a monthly count', async () => {
-    role = 'STAFF';
+    permissions = STAFF;
     expect((await send('DELETE', '/items/i1/counts/2026-01')).status).toBe(403);
-    role = 'ADMIN';
+    permissions = ADMIN;
     repo.deleteCount.mockResolvedValue(undefined);
     expect((await send('DELETE', '/items/i1/counts/2026-01')).status).toBe(204);
   });
@@ -162,6 +168,48 @@ describe('items API', () => {
     expect((await send('DELETE', '/items/i1/photos/p1')).status).toBe(200);
     expect((await send('POST', '/items/i1/photos/p2/cover')).status).toBe(200);
     expect(repo.setCoverPhoto).toHaveBeenCalledWith('i1', 'p2', 'u1');
+  });
+
+  it('checks permissions field by field on PATCH', async () => {
+    repo.updateItem.mockResolvedValue({ id: 'i1' });
+    permissions = ['inventory.view', 'items.edit_name', 'items.edit_sku'];
+    expect((await send('PATCH', '/items/i1', { name: 'Новое', sku: 'A1' })).status).toBe(200);
+    expect((await send('PATCH', '/items/i1', { name: 'Новое', unitPrice: 5 })).status).toBe(403);
+    // each card field is its own permission
+    expect((await send('PATCH', '/items/i1', { description: 'x' })).status).toBe(403);
+    expect((await send('PATCH', '/items/i1', { unit: 'кг' })).status).toBe(403);
+    expect((await send('PATCH', '/items/i1', { categoryId: CATEGORY })).status).toBe(403);
+    expect((await send('PATCH', '/items/i1', { archived: true })).status).toBe(403);
+    permissions = ['items.archive'];
+    expect((await send('PATCH', '/items/i1', { archived: true })).status).toBe(200);
+  });
+
+  it('needs inventory.view or inventory.count to read the list', async () => {
+    permissions = ['inventory.photos'];
+    expect((await send('GET', '/items')).status).toBe(403);
+  });
+
+  it('a count-only role reads the list and changes quantities — nothing else', async () => {
+    permissions = ['inventory.count'];
+    repo.listItems.mockResolvedValue([]);
+    repo.getItem.mockResolvedValue({ id: 'i1' });
+    repo.upsertCount.mockResolvedValue({ month: '2026-01' });
+    expect((await send('GET', '/items')).status).toBe(200);
+    expect((await send('GET', '/items/i1')).status).toBe(200);
+    expect((await send('PUT', '/items/i1/counts/2026-01', { currentQty: 3 })).status).toBe(200);
+    // everything else is closed
+    expect((await send('GET', '/items/i1/history')).status).toBe(403);
+    expect((await send('PATCH', '/items/i1', { name: 'X' })).status).toBe(403);
+    expect((await send('PATCH', '/items/i1', { archived: true })).status).toBe(403);
+    expect((await send('POST', '/items', { categoryId: CATEGORY, name: 'Y' })).status).toBe(403);
+    expect((await send('DELETE', '/items/i1')).status).toBe(403);
+    expect((await send('DELETE', '/items/i1/counts/2026-01')).status).toBe(403);
+    expect((await send('DELETE', '/items/i1/photos/p1')).status).toBe(403);
+  });
+
+  it('needs inventory.photos to manage photos', async () => {
+    permissions = ['inventory.view'];
+    expect((await send('DELETE', '/items/i1/photos/p1')).status).toBe(403);
   });
 
   it('maps repository conflicts to 409', async () => {

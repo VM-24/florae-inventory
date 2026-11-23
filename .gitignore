@@ -13,3 +13,6 @@ uploads/
 
 # Database dumps (data exports for servers)
 dumps/
+
+# Photos downloaded from the Railway volume
+railway-uploads/

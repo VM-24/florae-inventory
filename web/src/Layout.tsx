@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { App, Button, Drawer, Grid, Layout as AntLayout, Menu, Modal } from 'antd';
-import { AppstoreOutlined, KeyOutlined, LogoutOutlined, MenuOutlined, TagsOutlined, TeamOutlined } from '@ant-design/icons';
+import {
+  AppstoreOutlined, FileTextOutlined, KeyOutlined, LogoutOutlined, MenuOutlined, TagsOutlined, TeamOutlined,
+} from '@ant-design/icons';
 import { api, clearToken } from './api';
 import { useAuth } from './auth';
-import { ROLE_LABELS } from './roles';
 import { PasswordFields } from './components/ForcePasswordChange';
 
 const { Sider, Content } = AntLayout;
@@ -12,7 +13,7 @@ const { Sider, Content } = AntLayout;
 export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { me, isOwner } = useAuth();
+  const { me, can } = useAuth();
   const { message } = App.useApp();
   const screens = Grid.useBreakpoint();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -21,11 +22,15 @@ export default function Layout() {
   const [passwordError, setPasswordError] = useState('');
   const isMobile = screens.lg === false;
 
+  // Menu shows only what the role may open (the server checks the same permissions).
   const items = [
-    { key: '/', icon: <AppstoreOutlined />, label: 'Инвентарь' },
-    { key: '/categories', icon: <TagsOutlined />, label: 'Категории' },
-    ...(isOwner ? [{ key: '/users', icon: <TeamOutlined />, label: 'Пользователи' }] : []),
-  ];
+    { key: '/', icon: <AppstoreOutlined />, label: 'Инвентарь', perms: ['inventory.view', 'inventory.count'] },
+    { key: '/categories', icon: <TagsOutlined />, label: 'Категории', perms: ['inventory.view', 'categories.manage'] },
+    { key: '/users', icon: <TeamOutlined />, label: 'Пользователи и роли', perms: ['users.manage', 'roles.manage'] },
+    { key: '/audit', icon: <FileTextOutlined />, label: 'Журнал', perms: ['audit.view'] },
+  ]
+    .filter(i => i.perms.some(can))
+    .map(({ perms: _perms, ...item }) => item);
   const selected = items.find(i => i.key !== '/' && location.pathname.startsWith(i.key))?.key ?? '/';
 
   const changePassword = async ({ current, next }: { current: string; next: string }) => {
@@ -61,7 +66,7 @@ export default function Layout() {
     <div style={{ padding: 16 }}>
       <div style={{ fontWeight: 600 }}>{me?.name}</div>
       <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-        {me ? ROLE_LABELS[me.role] : ''} · {me?.login}
+        {me?.role.name} · {me?.login}
       </div>
       <Button icon={<KeyOutlined />} block style={{ marginBottom: 8 }} onClick={() => { setPasswordError(''); setPasswordOpen(true); setDrawerOpen(false); }}>
         Сменить пароль

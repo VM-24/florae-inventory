@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db';
-import { requireAdmin } from '../auth/middleware';
+import { requirePermission } from '../auth/middleware';
 import { asyncHandler, conflict, notFound } from '../http/errors';
 import { diff, writeAudit } from '../audit/audit';
 
@@ -21,7 +21,8 @@ function duplicateGuard(err: unknown): never {
 
 export const categoryRouter = Router();
 
-categoryRouter.get('/categories', asyncHandler(async (_req, res) => {
+// The list's category filter needs it too, hence inventory.count.
+categoryRouter.get('/categories', requirePermission('inventory.view', 'inventory.count', 'categories.manage'), asyncHandler(async (_req, res) => {
   const categories = await prisma.category.findMany({
     orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     include: { _count: { select: { items: { where: { archivedAt: null } } } } },
@@ -29,7 +30,7 @@ categoryRouter.get('/categories', asyncHandler(async (_req, res) => {
   res.json(categories.map(({ _count, ...c }) => ({ ...c, itemCount: _count.items })));
 }));
 
-categoryRouter.post('/categories', requireAdmin, asyncHandler(async (req, res) => {
+categoryRouter.post('/categories', requirePermission('categories.manage'), asyncHandler(async (req, res) => {
   const input = categorySchema.parse(req.body);
   try {
     const category = await prisma.$transaction(async tx => {
@@ -49,7 +50,7 @@ categoryRouter.post('/categories', requireAdmin, asyncHandler(async (req, res) =
   }
 }));
 
-categoryRouter.patch('/categories/:id', requireAdmin, asyncHandler(async (req, res) => {
+categoryRouter.patch('/categories/:id', requirePermission('categories.manage'), asyncHandler(async (req, res) => {
   const input = updateCategorySchema.parse(req.body);
   try {
     const category = await prisma.$transaction(async tx => {
@@ -71,7 +72,7 @@ categoryRouter.patch('/categories/:id', requireAdmin, asyncHandler(async (req, r
 }));
 
 // A category that still holds items (archived included) cannot be deleted — move them first.
-categoryRouter.delete('/categories/:id', requireAdmin, asyncHandler(async (req, res) => {
+categoryRouter.delete('/categories/:id', requirePermission('categories.manage'), asyncHandler(async (req, res) => {
   await prisma.$transaction(async tx => {
     const category = await tx.category.findUnique({
       where: { id: req.params.id },

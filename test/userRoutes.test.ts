@@ -6,10 +6,14 @@ import type { AddressInfo } from 'net';
 
 const users = vi.hoisted(() => ({
   listUsers: vi.fn(async () => []),
+  listRoles: vi.fn(async () => []),
   createUserWithIssuedPassword: vi.fn(),
   updateUser: vi.fn(),
   resetPassword: vi.fn(),
   changeOwnPassword: vi.fn(),
+  createRole: vi.fn(),
+  updateRole: vi.fn(),
+  deleteRole: vi.fn(),
 }));
 const dbUser = vi.hoisted(() => ({ current: null as null | Record<string, unknown> }));
 
@@ -22,18 +26,27 @@ import { requireAuth } from '../src/auth/middleware';
 import { meRouter, userRouter } from '../src/auth/routes';
 import { errorHandler } from '../src/http/errors';
 import { jwtSecret } from '../src/config';
+import { ALL_PERMISSIONS } from '../src/auth/permissions';
 
 let server: Server;
 let base: string;
 const token = jwt.sign({ userId: 'u1' }, jwtSecret());
+const ROLE_ID = '00000000-0000-4000-a000-000000000003';
 
-const as = (role: string, mustChangePassword = false) => {
-  dbUser.current = { id: 'u1', login: 'me', name: 'Me', role, active: true, mustChangePassword };
+// The signed-in user as requireAuth loads it: role with its permission rows.
+const as = (role: { isOwner?: boolean; permissions?: string[] }, mustChangePassword = false) => {
+  dbUser.current = {
+    id: 'u1', login: 'me', name: 'Me', active: true, mustChangePassword,
+    role: {
+      id: 'r1', name: role.isOwner ? 'Владелец' : 'Тест', isOwner: Boolean(role.isOwner),
+      permissions: (role.permissions ?? []).map(permission => ({ permission })),
+    },
+  };
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  as('OWNER');
+  as({ isOwner: true });
   const app = express();
   app.use(express.json());
   app.use('/api', requireAuth, meRouter, userRouter);
@@ -50,26 +63,42 @@ const send = (method: string, path: string, body?: unknown) =>
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-describe('user management API', () => {
-  it('is available to the owner only', async () => {
-    expect((await send('GET', '/users')).status).toBe(200);
-    as('ADMIN');
-    expect((await send('GET', '/users')).status).toBe(403);
-    as('STAFF');
-    expect((await send('POST', '/users', { login: 'x', name: 'X', role: 'STAFF' })).status).toBe(403);
+describe('permissions', () => {
+  it('the owner role has the whole catalog', async () => {
+    const me = await (await send('GET', '/me')).json();
+    expect(me.permissions).toEqual([...ALL_PERMISSIONS].sort());
+    expect(me.role).toMatchObject({ isOwner: true });
   });
 
+  it('users.manage is needed for users, roles.manage for editing roles', async () => {
+    as({ permissions: ['inventory.view'] });
+    expect((await send('GET', '/users')).status).toBe(403);
+    expect((await send('GET', '/roles')).status).toBe(403);
+
+    as({ permissions: ['users.manage'] });
+    expect((await send('GET', '/users')).status).toBe(200);
+    expect((await send('GET', '/roles')).status).toBe(200); // to pick a role for a user
+    expect((await send('POST', '/roles', { name: 'X', permissions: [] })).status).toBe(403);
+
+    as({ permissions: ['roles.manage'] });
+    users.createRole.mockResolvedValue({ id: 'r9' });
+    expect((await send('POST', '/roles', { name: 'Кассир', permissions: ['inventory.view'] })).status).toBe(201);
+    expect((await send('GET', '/users')).status).toBe(403);
+  });
+});
+
+describe('user management API', () => {
   it('creates a user and returns the issued password once', async () => {
     users.createUserWithIssuedPassword.mockResolvedValue({ id: 'n1', login: 'barista', password: 'p4ss-word-12' });
-    const res = await send('POST', '/users', { login: ' Barista ', name: 'Бариста', role: 'STAFF' });
+    const res = await send('POST', '/users', { login: ' Barista ', name: 'Бариста', roleId: ROLE_ID });
     expect(res.status).toBe(201);
     expect((await res.json()).password).toBe('p4ss-word-12');
-    expect(users.createUserWithIssuedPassword).toHaveBeenCalledWith({ login: 'barista', name: 'Бариста', role: 'STAFF' }, 'u1');
+    expect(users.createUserWithIssuedPassword).toHaveBeenCalledWith({ login: 'barista', name: 'Бариста', roleId: ROLE_ID }, 'u1');
   });
 
-  it('validates login and role', async () => {
-    expect((await send('POST', '/users', { login: 'с кириллицей', name: 'X', role: 'STAFF' })).status).toBe(400);
-    expect((await send('POST', '/users', { login: 'x', name: 'X', role: 'ROOT' })).status).toBe(400);
+  it('validates login and role id', async () => {
+    expect((await send('POST', '/users', { login: 'с кириллицей', name: 'X', roleId: ROLE_ID })).status).toBe(400);
+    expect((await send('POST', '/users', { login: 'x', name: 'X', roleId: 'STAFF' })).status).toBe(400);
   });
 
   it('resets a password', async () => {
@@ -81,7 +110,7 @@ describe('user management API', () => {
 
 describe('forced password change', () => {
   it('locks the API except /me and /me/password', async () => {
-    as('OWNER', true);
+    as({ isOwner: true }, true);
     const blocked = await send('GET', '/users');
     expect(blocked.status).toBe(403);
     expect((await blocked.json()).code).toBe('MUST_CHANGE_PASSWORD');
@@ -90,8 +119,10 @@ describe('forced password change', () => {
     expect(users.changeOwnPassword).toHaveBeenCalledWith('u1', 'a', 'bbbbbbbb');
   });
 
-  it('reports the flag in /me', async () => {
-    as('STAFF', true);
-    expect(await (await send('GET', '/me')).json()).toMatchObject({ role: 'STAFF', mustChangePassword: true });
+  it('reports the flag and permissions in /me', async () => {
+    as({ permissions: ['inventory.view', 'inventory.count'] }, true);
+    expect(await (await send('GET', '/me')).json()).toMatchObject({
+      mustChangePassword: true, permissions: ['inventory.count', 'inventory.view'],
+    });
   });
 });

@@ -10,7 +10,8 @@ type Draft = { id: string | null; name: string; sortOrder: number | null };
 
 export default function Categories() {
   const { message } = App.useApp();
-  const { isAdmin } = useAuth();
+  const { can } = useAuth();
+  const canManage = can('categories.manage');
   const navigate = useNavigate();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,7 +66,7 @@ export default function Categories() {
       ),
     },
   ];
-  if (isAdmin) {
+  if (canManage) {
     columns.push({
       title: '', key: 'actions', width: 120,
       render: (_, c) => (
@@ -83,7 +84,7 @@ export default function Categories() {
     <div>
       <Space style={{ marginBottom: 16, justifyContent: 'space-between', width: '100%' }} wrap>
         <Typography.Title level={3} style={{ margin: 0 }}>Категории</Typography.Title>
-        {isAdmin && (
+        {canManage && (
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ id: null, name: '', sortOrder: null })}>
             Категория
           </Button>

@@ -1,29 +1,44 @@
 import { useEffect, useState } from 'react';
-import { Alert, App, Button, Form, Input, Modal, Popconfirm, Select, Space, Tag, Tooltip, Typography } from 'antd';
+import { Alert, App, Button, Form, Input, Modal, Popconfirm, Select, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
 import { EditOutlined, KeyOutlined, LockOutlined, PlusOutlined, UnlockOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import ResponsiveTable, { type RColumn } from '../components/ResponsiveTable';
-import { api, type PanelUser, type Role } from '../api';
+import RolesTab from '../components/RolesTab';
+import { api, type PanelRole, type PanelUser } from '../api';
 import { useAuth } from '../auth';
-import { ROLE_COLORS, ROLE_LABELS, ROLE_OPTIONS } from '../roles';
 
-// User management — owner only (as in florae): create with an issued password, change role,
-// block/unblock, reset password. The server guards against self-lockout and losing the last owner.
+// Users and roles (as in florae). Users need users.manage, roles need roles.manage.
+// The server guards against self-lockout and losing the last owner.
 export default function Users() {
+  const { can } = useAuth();
+  const tabs = [
+    ...(can('users.manage') ? [{ key: 'users', label: 'Пользователи', children: <UsersTab /> }] : []),
+    ...(can('roles.manage') ? [{ key: 'roles', label: 'Роли и права', children: <RolesTab /> }] : []),
+  ];
+  return (
+    <div>
+      <Typography.Title level={3} style={{ marginTop: 0 }}>Пользователи и роли</Typography.Title>
+      <Tabs items={tabs} />
+    </div>
+  );
+}
+
+function UsersTab() {
   const { me } = useAuth();
   const { message } = App.useApp();
   const [users, setUsers] = useState<PanelUser[]>([]);
+  const [roles, setRoles] = useState<PanelRole[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState<PanelUser | null>(null);
   const [issued, setIssued] = useState<{ login: string; password: string; isNew: boolean } | null>(null);
-  const [createForm] = Form.useForm<{ login: string; name: string; role: Role }>();
+  const [createForm] = Form.useForm<{ login: string; name: string; roleId: string }>();
   const [renameForm] = Form.useForm<{ name: string }>();
 
   const load = () => {
     setLoading(true);
-    return api.users()
-      .then(setUsers)
+    return Promise.all([api.users(), api.roles()])
+      .then(([u, r]) => { setUsers(u); setRoles(r); })
       .catch(e => message.error(e.message))
       .finally(() => setLoading(false));
   };
@@ -31,8 +46,10 @@ export default function Users() {
   useEffect(() => { void load(); }, []);
 
   const fail = (fallback: string) => (err: unknown) => message.error(err instanceof Error ? err.message : fallback);
+  const roleOptions = roles.map(r => ({ value: r.id, label: r.name }));
+  const defaultRoleId = roles.find(r => r.name === 'Сотрудник')?.id ?? roles.find(r => !r.isOwner)?.id;
 
-  const create = async (values: { login: string; name: string; role: Role }) => {
+  const create = async (values: { login: string; name: string; roleId: string }) => {
     try {
       const user = await api.createUser(values);
       setCreating(false);
@@ -44,7 +61,7 @@ export default function Users() {
     }
   };
 
-  const patch = async (id: string, changes: { name?: string; role?: Role; active?: boolean }, ok?: string) => {
+  const patch = async (id: string, changes: { name?: string; roleId?: string; active?: boolean }, ok?: string) => {
     try {
       await api.updateUser(id, changes);
       if (ok) message.success(ok);
@@ -81,14 +98,14 @@ export default function Users() {
       title: 'Роль', key: 'role',
       render: (_, u) => (u.login === me?.login
         // Own role can't be changed — the server refuses too.
-        ? <Tag color={ROLE_COLORS[u.role]}>{ROLE_LABELS[u.role]}</Tag>
+        ? <Tag color={u.role.isOwner ? 'purple' : 'blue'}>{u.role.name}</Tag>
         : (
           <Select
             size="small"
-            value={u.role}
-            onChange={role => patch(u.id, { role }, 'Роль изменена')}
-            options={ROLE_OPTIONS.map(o => ({ value: o.value, label: ROLE_LABELS[o.value] }))}
-            style={{ minWidth: 150 }}
+            value={u.role.id}
+            onChange={roleId => patch(u.id, { roleId }, 'Роль изменена')}
+            options={roleOptions}
+            style={{ minWidth: 160 }}
           />
         )),
     },
@@ -115,11 +132,7 @@ export default function Users() {
         const isSelf = u.login === me?.login;
         return (
           <Space wrap>
-            <Button
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => { setRenaming(u); renameForm.setFieldsValue({ name: u.name }); }}
-            >
+            <Button size="small" icon={<EditOutlined />} onClick={() => { setRenaming(u); renameForm.setFieldsValue({ name: u.name }); }}>
               Имя
             </Button>
             <Popconfirm
@@ -152,9 +165,10 @@ export default function Users() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16, justifyContent: 'space-between', width: '100%' }} wrap>
-        <Typography.Title level={3} style={{ margin: 0 }}>Пользователи</Typography.Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>Пользователь</Button>
+      <Space style={{ marginBottom: 16, justifyContent: 'flex-end', width: '100%' }}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => { createForm.setFieldsValue({ roleId: defaultRoleId }); setCreating(true); }}>
+          Пользователь
+        </Button>
       </Space>
 
       <ResponsiveTable<PanelUser>
@@ -176,7 +190,7 @@ export default function Users() {
         cancelText="Отмена"
         destroyOnHidden
       >
-        <Form form={createForm} layout="vertical" onFinish={create} initialValues={{ role: 'STAFF' }}>
+        <Form form={createForm} layout="vertical" onFinish={create}>
           <Form.Item
             name="login"
             label="Логин"
@@ -190,8 +204,8 @@ export default function Users() {
           <Form.Item name="name" label="Имя" rules={[{ required: true, whitespace: true, message: 'Укажите имя' }]}>
             <Input placeholder="Анна Ковальская" />
           </Form.Item>
-          <Form.Item name="role" label="Роль" rules={[{ required: true }]}>
-            <Select options={ROLE_OPTIONS} />
+          <Form.Item name="roleId" label="Роль" rules={[{ required: true, message: 'Выберите роль' }]}>
+            <Select options={roleOptions} />
           </Form.Item>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             Пароль сгенерируется автоматически и будет показан один раз.

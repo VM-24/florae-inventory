@@ -4,13 +4,13 @@ import { api, clearToken, getToken, type Me } from './api';
 interface AuthState {
   me: Me | null;
   loading: boolean;
-  isAdmin: boolean; // catalog management: ADMIN or OWNER
-  isOwner: boolean; // user management ("главный админ")
+  // Permission check (catalog: src/auth/permissions.ts on the server). The owner can do everything.
+  can: (permission: string) => boolean;
   refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState>({
-  me: null, loading: true, isAdmin: false, isOwner: false, refresh: async () => {},
+  me: null, loading: true, can: () => false, refresh: async () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -35,14 +35,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { void refresh(); }, []);
 
-  const isOwner = me?.role === 'OWNER';
-  const isAdmin = isOwner || me?.role === 'ADMIN';
+  const can = (permission: string) => Boolean(me && (me.role.isOwner || me.permissions.includes(permission)));
 
   return (
-    <AuthContext.Provider value={{ me, loading, isAdmin, isOwner, refresh }}>
+    <AuthContext.Provider value={{ me, loading, can, refresh }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
 export const useAuth = () => useContext(AuthContext);
+export const useCan = () => useAuth().can;

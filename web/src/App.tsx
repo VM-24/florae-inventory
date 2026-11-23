@@ -11,6 +11,7 @@ import SimpleInventory from './pages/simple/SimpleInventory';
 import SimpleItemPage from './pages/simple/SimpleItemPage';
 import Categories from './pages/Categories';
 import Users from './pages/Users';
+import Audit from './pages/Audit';
 import ForcePasswordChange from './components/ForcePasswordChange';
 import { FULL_MODE } from './features';
 
@@ -27,14 +28,23 @@ function Protected({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-function AdminOnly({ children }: { children: ReactNode }) {
-  const { isAdmin } = useAuth();
-  return isAdmin ? <>{children}</> : <Navigate to="/" replace />;
-}
+// Sections in menu order; the first one the user may open is their home.
+export const SECTIONS: Array<{ path: string; perms: string[] }> = [
+  { path: '/', perms: ['inventory.view', 'inventory.count'] },
+  { path: '/categories', perms: ['inventory.view', 'categories.manage'] },
+  { path: '/users', perms: ['users.manage', 'roles.manage'] },
+  { path: '/audit', perms: ['audit.view'] },
+];
 
-function OwnerOnly({ children }: { children: ReactNode }) {
-  const { isOwner } = useAuth();
-  return isOwner ? <>{children}</> : <Navigate to="/" replace />;
+// Opens the page only with at least one of `perms`; otherwise goes to the first allowed section.
+function Require({ perms, children }: { perms: string[]; children: ReactNode }) {
+  const { can } = useAuth();
+  if (perms.some(can)) return <>{children}</>;
+  const home = SECTIONS.find(s => s.perms.some(can) && s.perms !== perms);
+  if (!home) {
+    return <div style={{ padding: 48, textAlign: 'center' }}>Вашей роли не назначено ни одного раздела. Обратитесь к владельцу.</div>;
+  }
+  return <Navigate to={home.path} replace />;
 }
 
 export default function App() {
@@ -42,11 +52,12 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<Protected><Layout /></Protected>}>
-        <Route index element={<Inventory />} />
-        <Route path="items/new" element={<AdminOnly><ItemPage /></AdminOnly>} />
-        <Route path="items/:id" element={<ItemPage />} />
-        <Route path="categories" element={<Categories />} />
-        <Route path="users" element={<OwnerOnly><Users /></OwnerOnly>} />
+        <Route index element={<Require perms={['inventory.view', 'inventory.count']}><Inventory /></Require>} />
+        <Route path="items/new" element={<Require perms={['items.create']}><ItemPage /></Require>} />
+        <Route path="items/:id" element={<Require perms={['inventory.view', 'inventory.count']}><ItemPage /></Require>} />
+        <Route path="categories" element={<Require perms={['inventory.view', 'categories.manage']}><Categories /></Require>} />
+        <Route path="users" element={<Require perms={['users.manage', 'roles.manage']}><Users /></Require>} />
+        <Route path="audit" element={<Require perms={['audit.view']}><Audit /></Require>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
